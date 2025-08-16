@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="bg">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>БГ Счетоводство — Solo</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <!-- Tailwind CSS (CDN for dev) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body>
+    <header>
+      <div class="container header-row">
+        <div class="brand flex items-center gap-2">
+          <i data-lucide="line-chart" class="w-5 h-5 text-blue-300"></i>
+          <span>БГ Счетоводство</span>
+          <span class="hidden sm:inline text-[11px] px-2 py-0.5 rounded bg-blue-600/30 text-blue-200 ml-1">alpha</span>
+        </div>
+        <nav class="nav">
+          <a href="#/dashboard" data-route="dashboard" class="nav-link">Табло</a>
+          <a href="#/sales" data-route="sales" class="nav-link">Продажби</a>
+          <a href="#/invoices" data-route="invoices" class="nav-link">Фактури</a>
+          <a href="#/reports" data-route="reports" class="nav-link">Отчети</a>
+        </nav>
+      </div>
+    </header>
+    <main id="app">
+      <div class="container" id="route-container"></div>
+    </main>
+    <script src="js/utils.js"></script>
+    <!-- Supabase JS v2 (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+    <script src="js/supabase.js"></script>
+    <script src="js/supabase-config.js"></script>
+    <script src="js/modules/sales.js"></script>
+    <script src="js/modules/invoices.js"></script>
+    <script src="js/modules/reports.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+      // Initialize Lucide icons after DOM is ready
+      window.addEventListener('DOMContentLoaded', function(){
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+        // Supabase (paste your real credentials here later)
+        if (window.supabaseApi && typeof window.supabaseApi.configure === 'function') {
+          window.supabaseApi.configure({
+            url: '',      // TODO: paste Supabase URL
+            anonKey: '',  // TODO: paste Supabase anon key
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
