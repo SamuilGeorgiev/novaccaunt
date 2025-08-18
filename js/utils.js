@@ -43,6 +43,43 @@
     }
   }
 
+  // Toasts
+  function ensureToastRoot() {
+    let root = document.getElementById('toast-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'toast-root';
+      root.className = 'fixed top-4 right-4 z-50 flex flex-col gap-2';
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+
+  function showToast(message, type = 'info', timeout = 3000) {
+    try {
+      const root = ensureToastRoot();
+      const el = document.createElement('div');
+      const base = 'px-4 py-2 rounded shadow text-sm backdrop-blur border';
+      const color = type === 'success' ? 'bg-emerald-600/80 border-emerald-400/30 text-white' :
+                    type === 'error' ? 'bg-red-600/80 border-red-400/30 text-white' :
+                    'bg-slate-700/80 border-white/10 text-white';
+      el.className = base + ' ' + color;
+      el.textContent = String(message || '');
+      root.appendChild(el);
+      const timer = setTimeout(() => {
+        el.remove();
+      }, Math.max(1500, timeout | 0));
+      // Allow manual dismiss on click
+      el.addEventListener('click', () => {
+        clearTimeout(timer);
+        el.remove();
+      });
+      return el;
+    } catch (_) {
+      // no-op
+    }
+  }
+
   // expose
-  window.utils = { formatCurrency, formatDate, formatPercentage };
+  window.utils = { formatCurrency, formatDate, formatPercentage, showToast };
 })();
