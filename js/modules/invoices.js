@@ -6,6 +6,7 @@
       this.items = [];
       this.filteredItems = [];
       this._editingId = null;
+      this._loadedFromSupabase = false;
     }
     init() {
       if (this._initialized) return;
@@ -22,10 +23,11 @@
       this.init();
       const el = targetEl || document.getElementById('route-container');
       if (!el) return;
+      const isSb = !!(window.supabaseApi && typeof window.supabaseApi.isConfigured === 'function' && window.supabaseApi.isConfigured());
       el.innerHTML = [
         '<div class="flex items-center justify-between mb-4">',
         '  <h1 class="text-xl font-semibold">Фактури</h1>',
-        '  <div class="text-xs opacity-80">Статус: <strong>локални данни</strong></div>',
+        '  <div class="text-xs opacity-80">Supabase: <strong>' + (isSb ? 'configured' : 'not configured') + '</strong>' + (this._loadedFromSupabase ? ' <span class="ml-2 px-2 py-0.5 rounded bg-emerald-600/30 text-emerald-200">live</span>' : '') + '</div>',
         '</div>',
         '<div class="flex items-center gap-2 mb-4">',
         '  <input id="inv-search" type="text" placeholder="Търсене..." class="px-3 py-2 rounded bg-white/10 text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-blue-500" />',
@@ -77,6 +79,13 @@
       ].join('\n');
       this.renderTable(el);
       this.bindEvents(el);
+      // Attempt to load from Supabase on render
+      this.setStatus(el, 'Зареждане на данни...', 'loading');
+      this.fetchDataFromSupabase().then((ok) => {
+        this.renderTable(el);
+        if (ok) this.setStatus(el, '', 'hide');
+        else this.setStatus(el, 'Неуспешно зареждане или няма данни (показани са локални).', 'error');
+      });
     }
 
     bindEvents(scopeEl) {
@@ -185,13 +194,26 @@
           submitBtn.textContent = 'Запазване...';
           submitBtn.classList.add('opacity-70', 'cursor-not-allowed');
         }
-        const record = { id: 'INV-' + Date.now(), date, client, amount };
+        // Try Supabase create first
+        let created = null;
+        if (window.supabaseApi && window.supabaseApi.client) {
+          try {
+            created = await window.supabaseApi.createInvoice({ date, client, amount });
+          } catch (err) {
+            console.warn('Supabase createInvoice failed, fallback to local.', err);
+          }
+        }
+        const record = created || { id: 'INV-' + Date.now(), date, client, amount };
         this.items = [record, ...this.items];
         this.filteredItems = this.items.slice();
         this.renderTable(scopeEl);
+        if (window.utils && window.utils.showToast) {
+          window.utils.showToast(created ? 'Успешно създадена фактура (Supabase).' : 'Операция изпълнена локално.', created ? 'success' : 'info');
+        }
       } catch (e) {
         console.error('Create invoice error:', e);
-        alert('Възникна грешка при запис.');
+        if (window.utils && window.utils.showToast) window.utils.showToast('Грешка при запис.', 'error');
+        else alert('Възникна грешка при запис.');
       } finally {
         const submitBtn = scopeEl.querySelector('#inv-form button[type="submit"]');
         if (submitBtn) {
@@ -217,12 +239,71 @@
       this.openModal(modal);
     }
 
-    handleDelete(scopeEl, id) {
-      if (!id) return;
-      if (!confirm('Сигурни ли сте, че искате да изтриете тази фактура?')) return;
-      this.items = this.items.filter(x => x.id !== id);
-      this.filteredItems = this.items.slice();
-      this.renderTable(scopeEl);
+    async handleDelete(scopeEl, id) {
+      try {
+        if (!id) return;
+        if (!confirm('Сигурни ли сте, че искате да изтриете тази фактура?')) return;
+        const hasSb = Boolean(window.supabaseApi && window.supabaseApi.client);
+        let ok = false;
+        if (hasSb) {
+          try {
+            await window.supabaseApi.deleteInvoice(id);
+            ok = true;
+          } catch (err) {
+            console.warn('Supabase deleteInvoice failed.', err);
+            const msg = (err && (err.message || err.error_description || err.hint)) ? String(err.message || err.error_description || err.hint) : 'Неизвестна грешка';
+            if (window.utils && window.utils.showToast) window.utils.showToast('Грешка при изтриване в Supabase: ' + msg, 'error', 6000);
+            else alert('Грешка при изтриване в Supabase: ' + msg);
+            const fallback = confirm('Изтриването в Supabase неуспешно. Да изтрия ли записа само локално?');
+            if (!fallback) return;
+          }
+        }
+        this.items = this.items.filter(x => x.id !== id);
+        this.filteredItems = this.items.slice();
+        this.renderTable(scopeEl);
+        if (window.utils && window.utils.showToast) window.utils.showToast(ok ? 'Записът е изтрит (Supabase).' : 'Записът е изтрит локално.', ok ? 'success' : 'info');
+      } catch (e) {
+        console.error('Delete invoice error:', e);
+        if (window.utils && window.utils.showToast) window.utils.showToast('Грешка при изтриване.', 'error');
+      }
+    }
+
+    setStatus(scopeEl, text, type) {
+      const box = scopeEl.querySelector('#inv-status');
+      if (!box) return;
+      if (type === 'hide') {
+        box.classList.add('hidden');
+        box.textContent = '';
+        return;
+      }
+      box.classList.remove('hidden');
+      box.textContent = text;
+      box.classList.remove('text-red-300', 'text-emerald-300', 'text-white/70');
+      if (type === 'error') box.classList.add('text-red-300');
+      else if (type === 'ok') box.classList.add('text-emerald-300');
+      else box.classList.add('text-white/70');
+    }
+
+    async fetchDataFromSupabase() {
+      try {
+        if (!(window.supabaseApi && window.supabaseApi.client)) return false;
+        const remote = await window.supabaseApi.loadInvoices();
+        if (Array.isArray(remote) && remote.length) {
+          this.items = remote.map(r => ({
+            id: r.id || r.invoice_no || r.number || '',
+            date: r.date || r.created_at || '',
+            client: r.client || r.client_name || '—',
+            amount: typeof r.amount === 'number' ? r.amount : Number(r.amount || 0)
+          }));
+          this.filteredItems = this.items.slice();
+          this._loadedFromSupabase = true;
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.warn('Invoices: failed to fetch from Supabase, using local.', e);
+        return false;
+      }
     }
 
     setModalMode(scopeEl, { mode }) {

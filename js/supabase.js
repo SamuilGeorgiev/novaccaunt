@@ -88,7 +88,51 @@
 
   async function loadInvoices() {
     if (!state.client) return [];
-    return [];
+    // Try ordering by 'date', then 'created_at', then no ordering
+    try {
+      const { data, error } = await state.client
+        .from('invoices')
+        .select('*')
+        .order('date', { ascending: false })
+        .limit(100);
+      if (!error) return Array.isArray(data) ? data : [];
+      if (!(error.code === '42703' || /column\s+"?date"?\s+does not exist/i.test(error.message || ''))) {
+        console.error('Supabase loadInvoices error:', error);
+        return [];
+      }
+    } catch (e) {
+      console.warn('loadInvoices date order failed, retry with created_at', e);
+    }
+
+    try {
+      const { data, error } = await state.client
+        .from('invoices')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (!error) return Array.isArray(data) ? data : [];
+      if (!(error.code === '42703' || /column\s+"?created_at"?\s+does not exist/i.test(error.message || ''))) {
+        console.error('Supabase loadInvoices error (created_at):', error);
+        return [];
+      }
+    } catch (e) {
+      console.warn('loadInvoices created_at order failed, fallback to no order', e);
+    }
+
+    try {
+      const { data, error } = await state.client
+        .from('invoices')
+        .select('*')
+        .limit(100);
+      if (error) {
+        console.error('Supabase loadInvoices error (no order):', error);
+        return [];
+      }
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      console.error('Supabase loadInvoices unexpected error:', e);
+      return [];
+    }
   }
 
   async function createSale({ date, client, amount }) {
@@ -173,6 +217,109 @@
     return data || { id };
   }
 
+  async function createInvoice({ date, client, amount, number }) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    const base = { date, client, amount };
+    const insertPayload = number ? { ...base, number } : base;
+    let { data, error } = await state.client
+      .from('invoices')
+      .insert(insertPayload)
+      .select('*')
+      .single();
+    if (error) {
+      const needsId = error.code === '23502' || /null value in column\s+"?id"?/i.test(error.message || '') || /does not have a default/i.test(error.message || '');
+      const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
+      if (needsId) {
+        const clientId = generateClientId();
+        const retry = await state.client
+          .from('invoices')
+          .insert({ id: clientId, ...base, ...(number ? { number } : {}) })
+          .select('*')
+          .single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      } else if (idColumnMissing) {
+        const key = number || generateClientId();
+        const retry = await state.client
+          .from('invoices')
+          .insert({ invoice_no: key, ...base, ...(number ? { number } : {}) })
+          .select('*')
+          .single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      } else {
+        throw error;
+      }
+    }
+    return data;
+  }
+
+  async function updateInvoice(id, { date, client, amount, number }) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    if (!id) throw new Error('Missing id');
+    const payload = {};
+    if (date !== undefined) payload.date = date;
+    if (client !== undefined) payload.client = client;
+    if (amount !== undefined) payload.amount = amount;
+    if (number !== undefined) payload.number = number;
+    let { data, error } = await state.client
+      .from('invoices')
+      .update(payload)
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) {
+      const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
+      if (idColumnMissing) {
+        const retry = await state.client
+          .from('invoices')
+          .update(payload)
+          .eq('invoice_no', id)
+          .select('*')
+          .single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      } else {
+        throw error;
+      }
+    }
+    return data;
+  }
+
+  async function deleteInvoice(id) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    if (!id) throw new Error('Missing id');
+    let resp = await state.client
+      .from('invoices')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
+    let data = resp.data;
+    let error = resp.error;
+    if (error) {
+      const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
+      const zeroRows = error.code === 'PGRST116' || /Results contain 0 rows/i.test(error.message || '') || resp.status === 406;
+      if (idColumnMissing) {
+        const retry = await state.client
+          .from('invoices')
+          .delete()
+          .eq('invoice_no', id)
+          .select('invoice_no')
+          .maybeSingle();
+        if (retry.error && !(retry.error.code === 'PGRST116' || /Results contain 0 rows/i.test(retry.error.message || '') || retry.status === 406)) {
+          throw retry.error;
+        }
+        data = retry.data || { id };
+      } else if (zeroRows) {
+        data = { id };
+      } else {
+        throw error;
+      }
+    }
+    return data || { id };
+  }
+
   function inferSalesIdShape(rows) {
     if (!Array.isArray(rows) || !rows.length) return;
     const re = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -201,5 +348,8 @@
     createSale,
     updateSale,
     deleteSale,
+    createInvoice,
+    updateInvoice,
+    deleteInvoice,
   };
 })();
