@@ -38,6 +38,17 @@
     window.invoicesManager.render(el);
   }
 
+  function renderDocuments() {
+    const el = getRouteContainer();
+    if (!el) return;
+    if (!window.DocumentsManager) {
+      el.innerHTML = '<h1>Документи</h1><p>Модулът не е зареден.</p>';
+      return;
+    }
+    if (!window.documentsManager) window.documentsManager = new window.DocumentsManager();
+    window.documentsManager.render(el);
+  }
+
   function renderReports() {
     const el = getRouteContainer();
     if (!el) return;
@@ -64,6 +75,7 @@
     'dashboard': renderDashboard,
     'sales': renderSales,
     'invoices': renderInvoices,
+    'documents': renderDocuments,
     'reports': renderReports,
   };
 

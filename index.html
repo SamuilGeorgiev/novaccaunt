@@ -9,6 +9,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Tesseract.js for client-side OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   </head>
   <body>
     <header>
@@ -22,6 +24,7 @@
           <a href="#/dashboard" data-route="dashboard" class="nav-link">Табло</a>
           <a href="#/sales" data-route="sales" class="nav-link">Продажби</a>
           <a href="#/invoices" data-route="invoices" class="nav-link">Фактури</a>
+          <a href="#/documents" data-route="documents" class="nav-link">Документи</a>
           <a href="#/reports" data-route="reports" class="nav-link">Отчети</a>
         </nav>
       </div>
@@ -34,6 +37,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
     <script src="js/supabase.js"></script>
     <script src="js/supabase-config.js"></script>
+    <script src="js/modules/documents.js"></script>
     <script src="js/modules/sales.js"></script>
     <script src="js/modules/invoices.js"></script>
     <script src="js/modules/reports.js"></script>
@@ -43,13 +47,6 @@
       window.addEventListener('DOMContentLoaded', function(){
         if (window.lucide && typeof window.lucide.createIcons === 'function') {
           window.lucide.createIcons();
-        }
-        // Supabase (paste your real credentials here later)
-        if (window.supabaseApi && typeof window.supabaseApi.configure === 'function') {
-          window.supabaseApi.configure({
-            url: '',      // TODO: paste Supabase URL
-            anonKey: '',  // TODO: paste Supabase anon key
-          });
         }
       });
     </script>

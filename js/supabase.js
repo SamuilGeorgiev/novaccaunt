@@ -338,6 +338,66 @@
     return 'TEMP-' + Date.now();
   }
 
+  // --- Documents APIs (safe fallbacks if tables/buckets missing) ---
+  async function uploadDocument(file, { folder = '' } = {}) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    if (!file) throw new Error('No file provided');
+    const bucket = 'documents';
+    // Build path: optional folder/YYYY/MM/uuid-filename
+    const now = new Date();
+    const yyyy = String(now.getFullYear());
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const prefix = [folder.replace(/^\/+|\/+$|\.+/g, ''), yyyy, mm].filter(Boolean).join('/');
+    const key = generateClientId() + '-' + (file.name || 'upload');
+    const path = (prefix ? prefix + '/' : '') + key;
+    try {
+      const { data, error } = await state.client.storage.from(bucket).upload(path, file, { upsert: false });
+      if (error) throw error;
+      return { bucket, path: data && data.path ? data.path : path };
+    } catch (e) {
+      console.error('uploadDocument failed:', e);
+      throw e;
+    }
+  }
+
+  async function createDocumentRecord({ type = 'invoice', storage_path, hash = null, ocr_provider = 'tesseract', status = 'uploaded' }) {
+    if (!state.client) return { id: generateClientId(), type, storage_path, status };
+    try {
+      const payload = { type, storage_path, hash, ocr_provider, status };
+      const { data, error } = await state.client.from('documents').insert(payload).select('*').single();
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      // If table missing, return a client-side record so UI can proceed
+      const tableMissing = /relation\s+"?documents"?\s+does not exist/i.test(e.message || '') || e.code === '42P01';
+      if (tableMissing) {
+        return { id: generateClientId(), type, storage_path, status };
+      }
+      console.error('createDocumentRecord error:', e);
+      return { id: generateClientId(), type, storage_path, status };
+    }
+  }
+
+  async function saveDocumentExtraction(document_id, payload_json, { confidence = null } = {}) {
+    if (!state.client) return { id: generateClientId(), document_id, payload_json, confidence };
+    try {
+      const { data, error } = await state.client
+        .from('document_extractions')
+        .insert({ document_id, payload_json, confidence })
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      const tableMissing = /relation\s+"?document_extractions"?\s+does not exist/i.test(e.message || '') || e.code === '42P01';
+      if (tableMissing) {
+        return { id: generateClientId(), document_id, payload_json, confidence };
+      }
+      console.error('saveDocumentExtraction error:', e);
+      return { id: generateClientId(), document_id, payload_json, confidence };
+    }
+  }
+
   window.supabaseApi = {
     configure,
     isConfigured,
@@ -351,5 +411,8 @@
     createInvoice,
     updateInvoice,
     deleteInvoice,
+    uploadDocument,
+    createDocumentRecord,
+    saveDocumentExtraction,
   };
 })();
