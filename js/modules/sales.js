@@ -87,6 +87,8 @@
       this.setStatus(el, 'Зареждане на данни...', 'loading');
       const ok = await this.fetchDataFromSupabase();
       this.renderTable(el);
+      // Apply external date filter from route (if any)
+      this.applyExternalDateFilter(el);
       if (ok) {
         this.setStatus(el, '', 'hide');
       } else {
@@ -332,6 +334,50 @@
       } else {
         if (title) title.textContent = 'Нова продажба';
         if (submitBtn) submitBtn.textContent = 'Запази';
+      }
+    }
+
+    applyExternalDateFilter(scopeEl) {
+      try {
+        const q = (window.__routeQuery || {});
+        const from = q.from ? String(q.from) : '';
+        const to = q.to ? String(q.to) : '';
+        if (!from && !to) return; // nothing to do
+        const fromD = from ? new Date(from) : null;
+        const toD = to ? new Date(to) : null;
+        const inRange = (dStr) => {
+          if (!dStr) return false;
+          const d = new Date(dStr);
+          if (fromD && d < fromD) return false;
+          if (toD) {
+            // inclusive end
+            const end = new Date(toD.getFullYear(), toD.getMonth(), toD.getDate(), 23, 59, 59, 999);
+            if (d > end) return false;
+          }
+          return true;
+        };
+        this.filteredItems = this.items.filter(it => inRange(it.date));
+        this.renderTable(scopeEl);
+        // show status with clear action
+        const rangeLabel = [from || '—', to || '—'].join(' → ');
+        this.setStatus(scopeEl, `Филтър по период: ${rangeLabel} `, 'ok');
+        // Append a clear button inline
+        const box = scopeEl.querySelector('#sales-status');
+        if (box) {
+          const btn = document.createElement('button');
+          btn.textContent = 'Изчисти';
+          btn.className = 'ml-2 px-2 py-0.5 text-xs rounded bg-white/10 hover:bg-white/15';
+          btn.addEventListener('click', () => {
+            window.location.hash = '#/sales';
+          });
+          // Remove previous button if any
+          const old = box.querySelector('button');
+          if (old) old.remove();
+          box.appendChild(btn);
+          box.classList.remove('hidden');
+        }
+      } catch (e) {
+        console.warn('applyExternalDateFilter failed', e);
       }
     }
 
