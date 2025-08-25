@@ -8,6 +8,7 @@
         file: null,
         imageUrl: null,
         ocrText: '',
+        ocrProvider: null,
         extraction: null,
         error: null,
       };
@@ -37,7 +38,10 @@
         '    </div>',
         '    <div class="space-y-4">',
         '      <div class="border border-slate-700 rounded p-3 bg-slate-900">',
-        '        <div class="text-xs text-slate-400 mb-2">Разпознат текст (OCR)</div>',
+        '        <div class="flex items-center justify-between mb-2">',
+        '          <div class="text-xs text-slate-400">Разпознат текст (OCR)</div>',
+        '          <div id="doc-ocr-provider" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">—</div>',
+        '        </div>',
         '        <pre id="doc-ocr-text" class="whitespace-pre-wrap text-xs text-slate-200 max-h-64 overflow-auto"></pre>',
         '      </div>',
         '      <div class="border border-slate-700 rounded p-3 bg-slate-900">',
@@ -81,6 +85,7 @@
       const file = e.target.files && e.target.files[0];
       this.state.file = file || null;
       this.state.ocrText = '';
+      this.state.ocrProvider = null;
       this.state.extraction = null;
       this.state.error = null;
 
@@ -97,6 +102,8 @@
       }
       const ocrTextEl = document.getElementById('doc-ocr-text');
       if (ocrTextEl) ocrTextEl.textContent = '';
+      const provEl = document.getElementById('doc-ocr-provider');
+      if (provEl) provEl.textContent = '—';
       const fieldsEl = document.getElementById('doc-fields');
       if (fieldsEl) fieldsEl.innerHTML = 'Няма данни';
 
@@ -111,8 +118,66 @@
         this.setError(container, 'Моля, изберете файл.');
         return;
       }
+
+      // 1) Опит с Azure OCR през Supabase Edge Function
+      const canUseAzure = !!(window.supabaseApi && window.supabaseApi.client && window.supabaseApi.runAzureOcrBase64);
+      if (canUseAzure) {
+        try {
+          this.state.ocrRunning = true;
+          this.updateButtons(container);
+          const res = await window.supabaseApi.runAzureOcrBase64(file);
+          const text = (res && res.text) || '';
+          this.state.ocrText = text;
+          this.state.ocrProvider = 'Azure';
+          const ocrTextEl = container.querySelector('#doc-ocr-text');
+          if (ocrTextEl) ocrTextEl.textContent = text.trim();
+          const provEl = container.querySelector('#doc-ocr-provider');
+          if (provEl) provEl.textContent = 'Azure';
+          const extraction = this.parseFields(text);
+          this.state.extraction = extraction;
+          this.renderFields(container, extraction);
+          this.state.ocrRunning = false;
+          this.updateButtons(container);
+          return;
+        } catch (e) {
+          console.warn('Azure OCR failed, trying Google Vision next:', e);
+        } finally {
+          this.state.ocrRunning = false;
+          this.updateButtons(container);
+        }
+      }
+
+      // 2) Опит с Google Vision през Supabase Edge Function
+      const canUseVision = !!(window.supabaseApi && window.supabaseApi.client && window.supabaseApi.runVisionOcrBase64);
+      if (canUseVision) {
+        try {
+          this.state.ocrRunning = true;
+          this.updateButtons(container);
+          const res = await window.supabaseApi.runVisionOcrBase64(file);
+          const text = (res && res.text) || '';
+          this.state.ocrText = text;
+          this.state.ocrProvider = 'Google Vision';
+          const ocrTextEl = container.querySelector('#doc-ocr-text');
+          if (ocrTextEl) ocrTextEl.textContent = text.trim();
+          const provEl = container.querySelector('#doc-ocr-provider');
+          if (provEl) provEl.textContent = 'Google Vision';
+          const extraction = this.parseFields(text);
+          this.state.extraction = extraction;
+          this.renderFields(container, extraction);
+          this.state.ocrRunning = false;
+          this.updateButtons(container);
+          return;
+        } catch (e) {
+          console.warn('Vision OCR failed, falling back to Tesseract if available:', e);
+        } finally {
+          this.state.ocrRunning = false;
+          this.updateButtons(container);
+        }
+      }
+
+      // 3) Резервен вариант: Tesseract.js (клиентски)
       if (!window.Tesseract) {
-        this.setError(container, 'Tesseract.js липсва.');
+        this.setError(container, 'Няма наличен OCR (Azure/Vision/Tesseract).');
         return;
       }
       try {
@@ -125,9 +190,11 @@
         await worker.terminate();
         const text = (data && data.text) || '';
         this.state.ocrText = text;
+        this.state.ocrProvider = 'Tesseract';
         const ocrTextEl = container.querySelector('#doc-ocr-text');
         if (ocrTextEl) ocrTextEl.textContent = text.trim();
-        // Parse to structured fields
+        const provEl = container.querySelector('#doc-ocr-provider');
+        if (provEl) provEl.textContent = 'Tesseract';
         const extraction = this.parseFields(text);
         this.state.extraction = extraction;
         this.renderFields(container, extraction);

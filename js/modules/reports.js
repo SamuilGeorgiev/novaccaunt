@@ -288,19 +288,20 @@
      }
 
      drawRevenueChart(scopeEl, animate) {
-       const canvas = scopeEl.querySelector('#rep-line');
-       if (!canvas) return;
-       const ctx = canvas.getContext('2d');
-       // Resize to container width for crisp drawing
-       const parentWidth = canvas.parentElement.clientWidth || 600;
-       const dpr = Math.max(window.devicePixelRatio || 1, 1);
-       const height = canvas.getAttribute('height') ? Number(canvas.getAttribute('height')) : 200;
-       canvas.width = Math.floor(parentWidth * dpr);
-       canvas.height = Math.floor(height * dpr);
-       canvas.style.width = parentWidth + 'px';
-       canvas.style.height = height + 'px';
-       ctx.setTransform(1,0,0,1,0,0);
-       ctx.scale(dpr, dpr);
+      const canvas = scopeEl.querySelector('#rep-line');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      // Canvas sizing
+      const parentWidth = canvas.parentElement.clientWidth || 600;
+      const dpr = Math.max(window.devicePixelRatio || 1, 1);
+      const height = canvas.getAttribute('height') ? Number(canvas.getAttribute('height')) : 200;
+      // Do not resize during hover-triggered redraws to prevent layout feedback
+      if (!this._hoverRedraw) {
+        canvas.width = Math.floor(parentWidth * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = parentWidth + 'px';
+        canvas.style.height = height + 'px';
+      }
 
        // Build last 90 days series (daily sum)
        const nextSeries = this.buildDailySeries(90);
@@ -310,8 +311,11 @@
        const plotH = h - pad.t - pad.b;
 
        const drawFrame = (t) => {
-         ctx.clearRect(0, 0, w, h);
-         // background plot area
+         // Reset transform; clear in device pixels, then scale to CSS pixels
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.scale(dpr, dpr);
+        // background plot area
          ctx.fillStyle = 'rgba(255,255,255,0.06)';
          ctx.fillRect(pad.l, pad.t, plotW, plotH);
 
@@ -402,7 +406,7 @@
          }
 
          // Save chart geometry for hover interaction
-         this._chart = { series, pad, plotW, plotH, w, h, maxVal };
+         this._chart = { series, pad, plotW, plotH, w, h, maxVal, _dpr: dpr };
 
          // Draw hover
          if (this._hoverIdx >= 0) this.drawHover(scopeEl);
@@ -455,30 +459,44 @@
      }
 
      bindChartHover(scopeEl) {
-       const canvas = scopeEl.querySelector('#rep-line');
-       if (!canvas) return;
-       const onMove = (e) => {
-         if (!this._chart) return;
-         const rect = canvas.getBoundingClientRect();
-         const x = e.clientX - rect.left;
-         const { pad, plotW, series } = this._chart;
-         if (!series || !series.length) return;
-         const rel = Math.max(0, Math.min(1, (x - pad.l) / Math.max(1, plotW)));
-         const idx = Math.round(rel * (series.length - 1));
-         if (idx !== this._hoverIdx) {
-           this._hoverIdx = idx;
-           this.drawRevenueChart(scopeEl, false); // redraw with hover
-         }
-       };
-       const onLeave = () => {
-         if (this._hoverIdx !== -1) {
-           this._hoverIdx = -1;
-           this.drawRevenueChart(scopeEl, false);
-         }
-       };
-       canvas.addEventListener('mousemove', onMove);
-       canvas.addEventListener('mouseleave', onLeave);
-     }
+      const canvas = scopeEl.querySelector('#rep-line');
+      if (!canvas) return;
+      let scheduled = false;
+      const scheduleRedraw = () => {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          this._hoverRedraw = true;
+          try {
+            this.drawRevenueChart(scopeEl, false);
+          } finally {
+            this._hoverRedraw = false;
+          }
+          scheduled = false;
+        });
+      };
+      const onMove = (e) => {
+        if (!this._chart) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const { pad, plotW, series } = this._chart;
+        if (!series || !series.length) return;
+        const rel = Math.max(0, Math.min(1, (x - pad.l) / Math.max(1, plotW)));
+        const idx = Math.round(rel * (series.length - 1));
+        if (idx !== this._hoverIdx) {
+          this._hoverIdx = idx;
+          scheduleRedraw(); // throttle via rAF
+        }
+      };
+      const onLeave = () => {
+        if (this._hoverIdx !== -1) {
+          this._hoverIdx = -1;
+          scheduleRedraw();
+        }
+      };
+      canvas.addEventListener('mousemove', onMove, { passive: true });
+      canvas.addEventListener('mouseleave', onLeave, { passive: true });
+    }
 
      drawHover(scopeEl) {
        if (!this._chart) return;

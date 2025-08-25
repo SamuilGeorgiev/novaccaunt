@@ -1,0 +1,19 @@
+# Sensitive credentials
+annular-garage-382115-9817f16ab848.json
+*.env
+.env
+.env.*
+
+# Supabase local artifacts
+.supabase
+
+# Dependencies / builds
+node_modules/
+dist/
+build/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

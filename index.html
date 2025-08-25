@@ -32,6 +32,24 @@
     <main id="app">
       <div class="container" id="route-container"></div>
     </main>
+    <footer class="mt-6">
+      <div class="container text-xs text-slate-400 py-6 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          &copy; <span id="year"></span> БГ Счетоводство — Solo
+        </div>
+        <div class="flex gap-3">
+          <a href="#/documents" class="nav-link">Документи</a>
+          <a href="#/invoices" class="nav-link">Фактури</a>
+          <a href="#/reports" class="nav-link">Отчети</a>
+        </div>
+      </div>
+      <script>
+        // set footer year
+        (function(){
+          try { var y = document.getElementById('year'); if (y) y.textContent = new Date().getFullYear(); } catch(_) {}
+        })();
+      </script>
+    </footer>
     <script src="js/utils.js"></script>
     <!-- Supabase JS v2 (UMD) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>

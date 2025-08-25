@@ -385,19 +385,17 @@
       try {
         if (!(window.supabaseApi && window.supabaseApi.client)) return false;
         const remote = await window.supabaseApi.loadSales();
-        if (Array.isArray(remote) && remote.length) {
-          // Normalize records to our shape
-          this.items = remote.map(r => ({
-            id: r.id || r.sale_no || '',
-            date: r.date || r.created_at || '',
-            client: r.client || r.client_name || '—',
-            amount: typeof r.amount === 'number' ? r.amount : Number(r.amount || 0)
-          }));
-          this.filteredItems = this.items.slice();
-          this._loadedFromSupabase = true;
-          return true;
-        }
-        return false;
+        const rows = Array.isArray(remote) ? remote : [];
+        // Normalize records to our shape (empty allowed)
+        this.items = rows.map(r => ({
+          id: r.id || r.sale_no || '',
+          date: r.date || r.created_at || '',
+          client: r.client || r.client_name || '—',
+          amount: typeof r.amount === 'number' ? r.amount : Number(r.amount || 0)
+        }));
+        this.filteredItems = this.items.slice();
+        this._loadedFromSupabase = true;
+        return true;
       } catch (e) {
         console.warn('Sales: failed to fetch from Supabase, using dummy data.', e);
         return false;

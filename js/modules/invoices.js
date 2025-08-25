@@ -288,18 +288,16 @@
       try {
         if (!(window.supabaseApi && window.supabaseApi.client)) return false;
         const remote = await window.supabaseApi.loadInvoices();
-        if (Array.isArray(remote) && remote.length) {
-          this.items = remote.map(r => ({
-            id: r.id || r.invoice_no || r.number || '',
-            date: r.date || r.created_at || '',
-            client: r.client || r.client_name || '—',
-            amount: typeof r.amount === 'number' ? r.amount : Number(r.amount || 0)
-          }));
-          this.filteredItems = this.items.slice();
-          this._loadedFromSupabase = true;
-          return true;
-        }
-        return false;
+        const rows = Array.isArray(remote) ? remote : [];
+        this.items = rows.map(r => ({
+          id: r.id || r.invoice_no || r.number || '',
+          date: r.date || r.created_at || '',
+          client: r.client || r.client_name || '—',
+          amount: typeof r.amount === 'number' ? r.amount : Number(r.amount || 0)
+        }));
+        this.filteredItems = this.items.slice();
+        this._loadedFromSupabase = true;
+        return true;
       } catch (e) {
         console.warn('Invoices: failed to fetch from Supabase, using local.', e);
         return false;

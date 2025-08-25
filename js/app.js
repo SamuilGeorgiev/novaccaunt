@@ -10,8 +10,26 @@
     const el = getRouteContainer();
     if (!el) return;
     el.innerHTML = [
-      '  <h1>Табло</h1>',
-      '  <p>Стартова страница. Ще добавяме навигация и модули стъпка по стъпка.</p>'
+      '  <section class="space-y-4">',
+      '    <h1 class="text-2xl font-semibold">Табло</h1>',
+      '    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">',
+      '      <div class="card"><div class="card-body flex items-center justify-between"><div><div class="text-slate-400 text-xs">Приходи (месец)</div><div class="text-xl font-semibold">—</div></div><i data-lucide="trending-up" class="w-5 h-5 text-emerald-400"></i></div></div>',
+      '      <div class="card"><div class="card-body flex items-center justify-between"><div><div class="text-slate-400 text-xs">Фактури (месец)</div><div class="text-xl font-semibold">—</div></div><i data-lucide="file-text" class="w-5 h-5 text-blue-400"></i></div></div>',
+      '      <div class="card"><div class="card-body flex items-center justify-between"><div><div class="text-slate-400 text-xs">Разходи (месец)</div><div class="text-xl font-semibold">—</div></div><i data-lucide="wallet" class="w-5 h-5 text-amber-400"></i></div></div>',
+      '      <div class="card"><div class="card-body flex items-center justify-between"><div><div class="text-slate-400 text-xs">Нетно</div><div class="text-xl font-semibold">—</div></div><i data-lucide="equals" class="w-5 h-5 text-sky-300"></i></div></div>',
+      '    </div>',
+      '    <div class="card">',
+      '      <div class="card-header">Скорошна активност</div>',
+      '      <div class="card-body">',
+      '        <table class="table table-striped text-sm">',
+      '          <thead><tr><th>Дата</th><th>Тип</th><th>Описание</th><th>Сума</th></tr></thead>',
+      '          <tbody id="recent-activity">',
+      '            <tr><td colspan="4" class="text-slate-400">Няма данни</td></tr>',
+      '          </tbody>',
+      '        </table>',
+      '      </div>',
+      '    </div>',
+      '  </section>'
     ].join('\n');
   }
 
@@ -87,6 +105,12 @@
     const handler = routes.hasOwnProperty(key) ? routes[key] : renderNotFound;
     handler();
     updateActiveNav(key);
+    // Refresh Lucide icons after DOM updates
+    try {
+      if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+    } catch (_) {}
   }
 
   function updateActiveNav(key) {

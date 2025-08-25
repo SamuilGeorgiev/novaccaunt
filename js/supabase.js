@@ -14,6 +14,7 @@
       if (state.url && state.anonKey && typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function') {
         state.client = window.supabase.createClient(state.url, state.anonKey);
       }
+
     } catch (e) {
       console.error('Supabase client init failed:', e);
       state.client = null;
@@ -143,9 +144,10 @@
       .insert(payload)
       .select('id,date,client,amount')
       .single();
-    // If DB requires an id (no default), fall back to client-generated id
+    // If DB requires an id (no default), or id column missing, retry strategies
     if (error) {
       const needsId = error.code === '23502' || /null value in column\s+"?id"?/i.test(error.message || '') || /does not have a default/i.test(error.message || '');
+      const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
       if (needsId) {
         const clientId = generateClientId();
         const retryPayload = { id: clientId, date, client, amount };
@@ -157,10 +159,22 @@
         if (retry.error) throw retry.error;
         data = retry.data;
         error = null;
+      } else if (idColumnMissing) {
+        // Table uses sale_no instead of id
+        const clientId = generateClientId();
+        const retry = await state.client
+          .from('sales')
+          .insert({ sale_no: clientId, date, client, amount })
+          .select('*')
+          .single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
       } else {
         throw error;
       }
     }
+    // Normalize to always include id
+    if (data && !data.id && data.sale_no) data.id = data.sale_no;
     return data;
   }
 
@@ -171,13 +185,29 @@
     if (date !== undefined) payload.date = date;
     if (client !== undefined) payload.client = client;
     if (amount !== undefined) payload.amount = amount;
-    const { data, error } = await state.client
+    let { data, error } = await state.client
       .from('sales')
       .update(payload)
       .eq('id', id)
       .select('id,date,client,amount')
       .single();
-    if (error) throw error;
+    if (error) {
+      const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
+      if (idColumnMissing) {
+        const retry = await state.client
+          .from('sales')
+          .update(payload)
+          .eq('sale_no', id)
+          .select('*')
+          .single();
+        if (retry.error) throw retry.error;
+        data = retry.data;
+      } else {
+        throw error;
+      }
+    }
+    // Normalize to always include id (sales may use sale_no)
+    if (data && !data.id && data.sale_no) data.id = data.sale_no;
     return data;
   }
 
@@ -196,24 +226,27 @@
     if (error) {
       const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
       const zeroRows = error.code === 'PGRST116' || /Results contain 0 rows/i.test(error.message || '') || resp.status === 406;
+      const permDenied = /permission denied/i.test(error.message || '') || /violates row-level security/i.test(error.message || '') || error.code === '42501';
       if (idColumnMissing) {
         const retry = await state.client
           .from('sales')
           .delete()
           .eq('sale_no', id)
-          .select('sale_no: id')
+          .select('sale_no')
           .maybeSingle();
         if (retry.error && !(retry.error.code === 'PGRST116' || /Results contain 0 rows/i.test(retry.error.message || '') || retry.status === 406)) {
           throw retry.error;
         }
         data = retry.data || { id };
-      } else if (zeroRows) {
+      } else if (zeroRows || permDenied) {
         // Consider as success: nothing to delete remotely
         data = { id };
       } else {
         throw error;
       }
     }
+    // Normalize to always include id (sales may use sale_no)
+    if (data && !data.id && data.sale_no) data.id = data.sale_no;
     return data || { id };
   }
 
@@ -251,6 +284,8 @@
         throw error;
       }
     }
+    // Normalize to always include id (invoices may use invoice_no)
+    if (data && !data.id && data.invoice_no) data.id = data.invoice_no;
     return data;
   }
 
@@ -283,6 +318,8 @@
         throw error;
       }
     }
+    // Normalize to always include id (invoices may use invoice_no)
+    if (data && !data.id && data.invoice_no) data.id = data.invoice_no;
     return data;
   }
 
@@ -300,6 +337,7 @@
     if (error) {
       const idColumnMissing = error.code === '42703' || /column\s+"?id"?\s+does not exist/i.test(error.message || '');
       const zeroRows = error.code === 'PGRST116' || /Results contain 0 rows/i.test(error.message || '') || resp.status === 406;
+      const permDenied = /permission denied/i.test(error.message || '') || /violates row-level security/i.test(error.message || '') || error.code === '42501';
       if (idColumnMissing) {
         const retry = await state.client
           .from('invoices')
@@ -311,12 +349,14 @@
           throw retry.error;
         }
         data = retry.data || { id };
-      } else if (zeroRows) {
+      } else if (zeroRows || permDenied) {
         data = { id };
       } else {
         throw error;
       }
     }
+    // Normalize to always include id (invoices may use invoice_no)
+    if (data && !data.id && data.invoice_no) data.id = data.invoice_no;
     return data || { id };
   }
 
@@ -360,6 +400,39 @@
     }
   }
 
+  // --- Azure OCR via Supabase Edge Function ---
+  async function runAzureOcrBase64(file) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    if (!file) throw new Error('No file');
+    // Encode file to base64 (without data URL prefix)
+    const base64 = await new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = String(reader.result || '');
+          resolve(res.replace(/^data:.+;base64,/, ''));
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      } catch (e) { reject(e); }
+    });
+
+    // Invoke the Edge Function 'vision-ocr-azure'
+    try {
+      console.log('[OCR] Azure: invoking vision-ocr-azure', { size: file.size, type: file.type });
+      const { data, error } = await state.client.functions.invoke('vision-ocr-azure', {
+        body: { imageBase64: base64, mime: file.type || 'image/jpeg' },
+      });
+      if (error) throw error;
+      const text = (data && (data.text || data.ocrText)) || '';
+      console.log('[OCR] Azure: success', { textChars: text.length });
+      return { text, raw: data };
+    } catch (e) {
+      console.error('[OCR] Azure: error', e);
+      throw e;
+    }
+  }
+
   async function createDocumentRecord({ type = 'invoice', storage_path, hash = null, ocr_provider = 'tesseract', status = 'uploaded' }) {
     if (!state.client) return { id: generateClientId(), type, storage_path, status };
     try {
@@ -398,6 +471,39 @@
     }
   }
 
+  // --- Vision OCR via Supabase Edge Function ---
+  async function runVisionOcrBase64(file) {
+    if (!state.client) throw new Error('Supabase not initialized');
+    if (!file) throw new Error('No file');
+    // Encode file to base64 (without data URL prefix)
+    const base64 = await new Promise((resolve, reject) => {
+      try {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = String(reader.result || '');
+          resolve(res.replace(/^data:.+;base64,/, ''));
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      } catch (e) { reject(e); }
+    });
+
+    // Invoke the Edge Function 'vision-ocr'
+    try {
+      console.log('[OCR] Vision: invoking vision-ocr', { size: file.size, type: file.type });
+      const { data, error } = await state.client.functions.invoke('vision-ocr', {
+        body: { imageBase64: base64, mime: file.type || 'image/jpeg' },
+      });
+      if (error) throw error;
+      const text = (data && (data.text || data.ocrText)) || '';
+      console.log('[OCR] Vision: success', { textChars: text.length });
+      return { text, raw: data };
+    } catch (e) {
+      console.error('[OCR] Vision: error', e);
+      throw e;
+    }
+  }
+
   window.supabaseApi = {
     configure,
     isConfigured,
@@ -414,5 +520,7 @@
     uploadDocument,
     createDocumentRecord,
     saveDocumentExtraction,
+    runVisionOcrBase64,
+    runAzureOcrBase64,
   };
 })();
